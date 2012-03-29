@@ -59,7 +59,7 @@ module Databasedotcom
     #    ca_file
     #    verify_mode
     # If the environment variables DATABASEDOTCOM_CLIENT_ID, DATABASEDOTCOM_CLIENT_SECRET, DATABASEDOTCOM_HOST,
-    # DATABASEDOTCOM_DEBUGGING, DATABASEDOTCOM_VERSION, DATABASEDOTCOM_SOBJECT_MODULE, DATABASEDOTCOM_CA_FILE, and/or 
+    # DATABASEDOTCOM_DEBUGGING, DATABASEDOTCOM_VERSION, DATABASEDOTCOM_SOBJECT_MODULE, DATABASEDOTCOM_CA_FILE, and/or
     # DATABASEDOTCOM_VERIFY_MODE are present, they override any other values provided
     def initialize(options = {})
       if options.is_a?(String)
@@ -83,7 +83,7 @@ module Databasedotcom
         self.client_secret = ENV['DATABASEDOTCOM_CLIENT_SECRET'] || @options[:client_secret]
         self.host = ENV['DATABASEDOTCOM_HOST'] || @options[:host] || "login.salesforce.com"
       end
-      
+
       self.debugging = ENV['DATABASEDOTCOM_DEBUGGING'] || @options[:debugging]
       self.version = ENV['DATABASEDOTCOM_VERSION'] || @options[:version]
       self.version = self.version.to_s if self.version
@@ -380,8 +380,8 @@ module Databasedotcom
     end
 
     def https_request(host=nil)
-      Net::HTTP.new(host || URI.parse(self.instance_url).host, 443).tap do |http| 
-        http.use_ssl = true 
+      Net::HTTP.new(host || URI.parse(self.instance_url).host, 443).tap do |http|
+        http.use_ssl = true
         http.ca_file = self.ca_file if self.ca_file
         http.verify_mode = self.verify_mode if self.verify_mode
       end
@@ -442,16 +442,28 @@ module Databasedotcom
           key_from_label(field["label"]) == name || field["name"] == name || field["relationshipName"] == name
         end
 
-        # Field not found
-        if field == nil
-          break
-        end
+        # Field not found, check for parent-to-child associations
+         if field == nil
+           break unless value.is_a?(Hash) && value["records"]
+
+           # if value is hash and has "records"
+           # then it's an association
+           begin
+             new_record.class.register_field name, {:type => "reference", :label => name}
+             field = {}
+             value = collection_from_hash(value)
+           rescue Databasedotcom::SalesForceError
+             break
+           end
+         end
 
         # If reference/lookup field data was fetched, recursively build the child record and apply
         if value.is_a?(Hash) and field['type'] == 'reference' and field["relationshipName"]
           relation = record_from_hash( value )
           set_value( new_record, field["relationshipName"], relation, 'reference' )
-
+        # If the value is a collection, set the association on the record
+        elsif value.is_a?(Databasedotcom::Collection)
+          set_value( new_record, name, value, 'reference' )
         # Apply the raw value for all other field types
         else
           set_value(new_record, field["name"], value, field["type"]) if field
